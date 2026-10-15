@@ -1,0 +1,373 @@
+Project Draft_SPRINT {
+  database_type: 'PostgreSQL'
+  Note: 'Database Draft SPRINT dengan alur approval dinamis, snapshot arsip, dan dukungan peserta eksternal'
+}
+
+// =====================================================
+// 1. ENUM STATUS
+// =====================================================
+
+Enum status_dokumen_enum {
+  DRAFT_SURAT
+  DRAFT_SPRINT
+  FINAL
+}
+
+Enum status_proses_enum {
+  DRAFT
+  MENUNGGU_APPROVAL
+  REVISI
+  DITOLAK
+  SIAP_SPRINT
+  SELESAI
+}
+
+Enum status_approval_enum {
+  REVISI [note: '0']
+  APPROVE [note: '1']
+  TOLAK [note: '2']
+}
+
+// =====================================================
+// 2. MASTER ATURAN DINAS DAN ANGGARAN
+// =====================================================
+
+Table aturan_dinas_anggaran {
+  id int [pk, increment]
+  kode_dinas varchar(3) [not null, unique, note: 'DLH atau DLF']
+  nama_dinas varchar(100) [not null]
+  tipe_anggaran varchar(30) [not null, note: 'BERBASIS_ANGGARAN atau NON_ANGGARAN']
+  aktif boolean [not null, default: true]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp
+}
+
+// =====================================================
+// 3. MASTER TEMPLATE SURAT
+// =====================================================
+
+Table master_surat {
+  master_id int [pk, increment]
+  nama_template varchar(150) [not null]
+  deskripsi text
+  isi_template text
+  aktif boolean [not null, default: true]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp
+}
+
+// =====================================================
+// 4. MASTER ALUR APPROVAL
+// =====================================================
+
+Table master_alur_approval {
+  id int [pk, increment]
+  kode_alur varchar(50) [not null, unique]
+  nama_alur varchar(150) [not null]
+  deskripsi text
+
+  aturan_dinas_anggaran_id int [not null, ref: > aturan_dinas_anggaran.id]
+  kategori_surat varchar(100)
+
+  versi int [not null, default: 1]
+  aktif boolean [not null, default: true]
+
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp
+}
+
+// =====================================================
+// 5. MASTER PEJABAT / TAHAP APPROVAL
+// =====================================================
+
+Table tahap_approval {
+  id int [pk, increment]
+  kode_tahap varchar(50) [not null, unique]
+  nama_tahap varchar(150) [not null]
+  deskripsi text
+  aktif boolean [not null, default: true]
+}
+
+// =====================================================
+// 6. DETAIL URUTAN TAHAP DALAM SETIAP ALUR
+// =====================================================
+
+Table alur_approval_tahap {
+  id int [pk, increment]
+
+  alur_approval_id int [not null, ref: > master_alur_approval.id]
+  tahap_approval_id int [not null, ref: > tahap_approval.id]
+
+  urutan_tahap int [not null]
+  wajib boolean [not null, default: true]
+
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (alur_approval_id, urutan_tahap) [unique]
+    (alur_approval_id, tahap_approval_id) [unique]
+  }
+}
+
+// =====================================================
+// 7. DATA UTAMA SURAT
+// =====================================================
+
+Table surat {
+  id int [pk, increment]
+
+  master_surat_id int [not null, ref: > master_surat.master_id]
+  aturan_dinas_anggaran_id int [not null, ref: > aturan_dinas_anggaran.id]
+  master_alur_approval_id int [not null, ref: > master_alur_approval.id]
+
+  kode_dinas_snapshot varchar(3) [not null]
+  tipe_anggaran_snapshot varchar(30) [not null]
+  versi_alur_snapshot int [not null, default: 1]
+
+  kategori_dipa varchar(100)
+
+  tanggal_kegiatan_from timestamp [not null]
+  tanggal_kegiatan_to timestamp [not null]
+  tempat_kegiatan varchar(255) [not null]
+
+  untuk text
+  kota_surat varchar(100) [not null]
+  tanggal_surat date
+  tujuan_surat varchar(255)
+
+  status_dokumen status_dokumen_enum [not null, default: 'DRAFT_SURAT']
+  status_proses status_proses_enum [not null, default: 'DRAFT']
+
+  nomor_sprint varchar(100) [unique]
+  sprint_generated_at timestamp
+
+  versi_pengajuan int [not null, default: 1]
+
+  created_at timestamp [not null, default: `now()`]
+  created_by varchar(100) [not null]
+  updated_at timestamp
+}
+
+// =====================================================
+// 8. DASAR SURAT
+// =====================================================
+
+Table surat_dasar {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  nama_template varchar(150)
+  deskripsi text
+  isi_surat text
+  urutan int [not null, default: 1]
+
+  indexes {
+    (surat_id, urutan) [unique]
+  }
+}
+
+// =====================================================
+// 9. MASTER PEGAWAI (INTERNAL ASN)
+// =====================================================
+
+Table pegawai {
+  nip varchar(30) [pk]
+  nama_pegawai varchar(150) [not null]
+  pangkat_golongan varchar(100)
+  jabatan varchar(150)
+  nomor_urut int
+  aktif boolean [not null, default: true]
+}
+
+// =====================================================
+// 10. PEGAWAI INTERNAL PADA BADAN SURAT
+// =====================================================
+
+Table surat_pegawai_langsung {
+  surat_id int [not null, ref: > surat.id]
+  pegawai_nip varchar(30) [not null, ref: > pegawai.nip]
+
+  nama_pegawai_snapshot varchar(150) [not null]
+  pangkat_golongan_snapshot varchar(100)
+  jabatan_snapshot varchar(150)
+
+  urutan int [not null]
+
+  indexes {
+    (surat_id, urutan) [pk]
+    (surat_id, pegawai_nip) [unique]
+  }
+}
+
+// =====================================================
+// 11. LAMPIRAN SURAT
+// =====================================================
+
+Table lampiran {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  jenis_lampiran varchar(100) [not null]
+  nama_lampiran varchar(255)
+  created_at timestamp [not null, default: `now()`]
+}
+
+// =====================================================
+// 12. PEGAWAI INTERNAL DALAM LAMPIRAN
+// =====================================================
+
+Table lampiran_pegawai {
+  id int [pk, increment]
+  lampiran_id int [not null, ref: > lampiran.id]
+  pegawai_nip varchar(30) [not null, ref: > pegawai.nip]
+
+  nama_pegawai_snapshot varchar(150) [not null]
+  pangkat_golongan_snapshot varchar(100)
+  jabatan_snapshot varchar(150)
+
+  nomor_urut int [not null]
+
+  indexes {
+    (lampiran_id, nomor_urut) [unique]
+    (lampiran_id, pegawai_nip) [unique]
+  }
+}
+
+// =====================================================
+// 13. MASTER PESERTA / PIHAK EKSTERNAL (TAMU / NARASUMBER LUAR)
+// =====================================================
+
+Table peserta_eksternal {
+  id int [pk, increment]
+  nik_atau_paspor varchar(50) [note: 'NIK atau No Paspor untuk identitas']
+  nama_lengkap varchar(150) [not null]
+  instansi_asal varchar(150) [not null, note: 'Contoh: Brigham Young University / Universitas Gunadarma']
+  jabatan_asal varchar(150)
+  email varchar(100)
+  nomor_telepon varchar(30)
+  created_at timestamp [not null, default: `now()`]
+}
+
+// =====================================================
+// 14. LAMPIRAN PESERTA EKSTERNAL
+// =====================================================
+
+Table lampiran_peserta_eksternal {
+  id int [pk, increment]
+  lampiran_id int [not null, ref: > lampiran.id]
+  peserta_eksternal_id int [not null, ref: > peserta_eksternal.id]
+
+  nama_lengkap_snapshot varchar(150) [not null]
+  instansi_asal_snapshot varchar(150) [not null]
+  jabatan_asal_snapshot varchar(150)
+
+  nomor_urut int [not null]
+  status_pembiayaan varchar(30) [not null, default: 'DITANGGUNG_PIHAK_LUAR', note: 'DITANGGUNG_BPSDM atau DITANGGUNG_PIHAK_LUAR']
+
+  indexes {
+    (lampiran_id, nomor_urut) [unique]
+    (lampiran_id, peserta_eksternal_id) [unique]
+  }
+}
+
+// =====================================================
+// 15. TEMBUSAN
+// =====================================================
+
+Table tembusan {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  urutan_tembusan int [not null]
+  keterangan_tembusan varchar(255) [not null]
+
+  indexes {
+    (surat_id, urutan_tembusan) [unique]
+  }
+}
+
+// =====================================================
+// 16. ANGGARAN PERJALANAN
+// =====================================================
+
+Table anggaran_perjalanan {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  kode_akun_anggaran varchar(100)
+  nominal decimal(15,2)
+  keterangan text
+}
+
+// =====================================================
+// 17. MENIMBANG
+// =====================================================
+
+Table menimbang {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  pelaksanaan_kegiatan text [not null]
+  template_menimbang_surat varchar(255)
+  urutan int [not null, default: 1]
+
+  indexes {
+    (surat_id, urutan) [unique]
+  }
+}
+
+// =====================================================
+// 18. TUJUAN / PENERIMA SURAT
+// =====================================================
+
+Table surat_tujuan {
+  id int [pk, increment]
+  surat_id int [not null, ref: > surat.id]
+
+  keterangan_tujuan varchar(255) [not null]
+  urutan int [not null, default: 1]
+
+  indexes {
+    (surat_id, urutan) [unique]
+  }
+}
+
+// =====================================================
+// 19. APPROVAL PER SURAT
+// =====================================================
+
+Table approval {
+  id int [pk, increment]
+
+  surat_id int [not null, ref: > surat.id]
+  alur_approval_tahap_id int [not null, ref: > alur_approval_tahap.id]
+
+  status status_approval_enum [default: null, note: '0=Revisi, 1=Approve, 2=Tolak, NULL=Pending']
+
+  pejabat_pemeriksa varchar(150)
+  catatan text
+
+  created_at timestamp [not null, default: `now()`]
+  decided_at timestamp
+
+  indexes {
+    (surat_id, alur_approval_tahap_id) [unique]
+  }
+}
+
+// =====================================================
+// 20. RIWAYAT APPROVAL
+// =====================================================
+
+Table approval_riwayat {
+  id int [pk, increment]
+
+  approval_id int [not null, ref: > approval.id]
+  versi_pengajuan int [not null]
+
+  status status_approval_enum [not null, note: '0=Revisi, 1=Approve, 2=Tolak']
+
+  catatan text
+  diputuskan_oleh varchar(150) [not null]
+  diputuskan_pada timestamp [not null, default: `now()`]
+}
